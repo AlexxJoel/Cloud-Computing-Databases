@@ -1,0 +1,212 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<link rel="stylesheet" type="text/css" href="docs.css">
+<!--[if gte IE 5]>
+     <link href="docs_ie.css" rel="stylesheet" type="text/css">
+<![endif]-->
+</head>
+<body><div id="pagecontainer"><table><tr><td width="5">&nbsp;</td><td><a name="Benchmark"></a><br>
+<a name="outline114"></a><br><h1>18. IO Benchmark</h1><br>
+I/O access times play a crucial role in the overall performance of a database. It&nbsp;is important to estimate the performance before committing to a specific&nbsp;database. To help you with this we introduce IO Benchmark tool with the following&nbsp;functionality: <br>
+1.&nbsp;&nbsp;&nbsp;&nbsp;Measuring the actual I/O performance of a system as seen by db4o<br>
+2.&nbsp;&nbsp;&nbsp;&nbsp;Simulating the behaviour of a slower system on a faster one<br>
+IO benchmark consists of db4o_bench.jar, with the source code in the db4otools project&nbsp;/ com.db4o.bench package. <br>
+The code can be compiled with JDK 1.3 and higher.<br>
+Benchmark runs in 3 stages: <br>
+1.&nbsp;&nbsp;&nbsp;&nbsp;Run a target application and log its I/O access pattern using LoggingIoAdapter:<br>
+<table width="100%" cellpadding="3" cellspacing="0" border="0"><tr><td class="lg">
+<code>// runTargetApplication<br>
+// Stage 1: running the application to record IO access <br>
+System.out.println("Running target application ...");<br>
+// Any custom application can be used instead<br>
+new CrudApplication().run(itemCount);</code></td></tr></table>
+<br>
+2.&nbsp;&nbsp;&nbsp;&nbsp;Replay the recorded I/O operations once to prepare a database file.<br>
+<table width="100%" cellpadding="3" cellspacing="0" border="0"><tr><td class="lg">
+<code>// prepareDbFile<br>
+// Stage 2:Replay the recorded IO to prepare a database file<br>
+System.out.println("Preparing DB file ...");<br>
+deleteFile(_dbFileName);<br>
+IoAdapter rafFactory = new RandomAccessFileAdapter();<br>
+IoAdapter raf = rafFactory.open(_dbFileName, false, 0, false);<br>
+// Use the file with the recorded operations from stage 1<br>
+LogReplayer replayer = new LogReplayer("simplecrud_" + itemCount + ".log", raf);<br>
+try {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;replayer.replayLog();<br>
+} catch (IOException e) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;exitWithError("Error reading I/O operations log file");<br>
+} finally {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;raf.close();<br>
+}</code></td></tr></table>
+<br>
+This step is necessary to ensure that during the grouped replay in the next step,&nbsp;none of the accesses will go beyond the currently existing file.<br>
+<br>
+3.&nbsp;&nbsp;&nbsp;&nbsp;Replay the recorded I/O operations a second time. Operations are grouped by&nbsp;command type (read, write, seek, sync), and the total time executing all&nbsp;operations of a specific command type is measured. Grouping is necessary&nbsp;to avoid micro-benchmarking effects and to get time values above timer resolution.<br>
+We divide the numbers collected in stage 3 by the respective number of&nbsp;operations and we calculate the&nbsp;&nbsp;average time a particular command takes&nbsp;on the given system.<br>
+<table width="100%" cellpadding="3" cellspacing="0" border="0"><tr><td class="lg">
+<code>// runBenchmark<br>
+// Stage 3: Replay the recorded IO grouping command types<br>
+System.out.println("Running benchmark ...");<br>
+deleteBenchmarkResultsFile(itemCount);<br>
+PrintStream out = new PrintStream(new FileOutputStream(resultsFileName(itemCount), true));<br>
+printRunHeader(itemCount, out);<br>
+// run all commands: READ_ENTRY, WRITE_ENTRY, SYNC_ENTRY, SEEK_ENTRY<br>
+for (int i = 0; i &lt; LogConstants.ALL_CONSTANTS.length; i++) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;String currentCommand = LogConstants.ALL_CONSTANTS[i];<br>
+&nbsp;&nbsp;&nbsp;&nbsp;benchmarkCommand(currentCommand, itemCount, _dbFileName, out);&nbsp;&nbsp;&nbsp;&nbsp;<br>
+}<br>
+out.close();<br>
+deleteFile(_dbFileName);<br>
+deleteCrudLogFile(itemCount);</code></td></tr></table>
+<br>
+ <br>
+<br>
+<ul>
+<a name="outline115"></a><br><h2>18.1. Benchmark Application</h2>IO Benchmark can be used with any custom application. Here we will look at it on&nbsp;an example of a simple CRUD application.<br>
+<table width="100%" cellpadding="3" cellspacing="0" border="0"><tr><td class="lg">
+<code>/* Copyright (C) 2007&nbsp;&nbsp;db4objects Inc.&nbsp;&nbsp;http://www.db4o.com */<br>
+package com.db4o.f1.chapter10;<br>
+import java.io.*;<br>
+import com.db4o.*;<br>
+import com.db4o.bench.logging.*;<br>
+import com.db4o.config.*;<br>
+import com.db4o.io.*;<br>
+/**<br>
+ * Very simple CRUD (Create, Read, Update, Delete) application to <br>
+ * produce log files as an input for I/O-benchmarking.<br>
+ */<br>
+public class CrudApplication {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;private static final String DATABASE_FILE = "simplecrud.db4o";<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;public void run(final int itemCount) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Configuration config = prepare(itemCount);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;create(itemCount, config);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;read(config);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;update(config);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;delete(config);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;deleteDbFile();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;private Configuration prepare(int itemCount) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;deleteDbFile();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;RandomAccessFileAdapter rafAdapter = new RandomAccessFileAdapter();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;IoAdapter ioAdapter = new LoggingIoAdapter(rafAdapter, logFileName(itemCount));<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Configuration config = Db4o.cloneConfiguration();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;config.io(ioAdapter);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return config;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;private void create(int itemCount, Configuration config) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ObjectContainer oc = open(config);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;for (int i = 0; i &lt; itemCount; i++) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.store(Item.newItem(i));<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// preventing heap space problems by committing from time to time<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if(i % 100000 == 0) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.commit();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.commit();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.close();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;private void read(Configuration config) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ObjectContainer oc = open(config);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ObjectSet objectSet = oc.query(Item.class);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;while(objectSet.hasNext()){<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Item item = (Item) objectSet.next();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.close();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;private void update(Configuration config) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ObjectContainer oc = open(config);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ObjectSet objectSet = oc.query(Item.class);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;while(objectSet.hasNext()){<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Item item = (Item) objectSet.next();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;item.change();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.store(item);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.close();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;private void delete(Configuration config) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ObjectContainer oc = open(config);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ObjectSet objectSet = oc.query(Item.class);;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;while(objectSet.hasNext()){<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.delete(objectSet.next());<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// adding commit results in more syncs in the log, <br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// which is necessary for meaningful statistics!<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.commit();&nbsp;&nbsp;&nbsp;&nbsp; <br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;oc.close();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;private void deleteDbFile() {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;new File(DATABASE_FILE).delete();<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;private ObjectContainer open(Configuration config) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return Db4o.openFile(config, DATABASE_FILE);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;public static String logFileName(int itemCount) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return "simplecrud_" + itemCount + ".log";<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<br>
+}<br>
+</code></td></tr></table>
+<br>
+Please, pay attention to prepare method, which configures the use of&nbsp;LoggingIoAdapter - this is the only change that is required on your application's&nbsp;side to make it available for benchmarking. LoggingIoAdapter will ensure that all IO access operations&nbsp;will be logged to the specified file. This information can be used later&nbsp;(stage 2 and 3 of the benchmark) to replay the application's database interaction and measure performance&nbsp;for this specific pattern on different environments. <br>
+<br>
+<a name="outline116"></a><br><h2>18.2. Benchmark Example</h2>You can try to run the benchmark immediately on our sample application. We use&nbsp;a very small number of objects (10) for this example to make it faster:<br>
+<table width="100%" cellpadding="3" cellspacing="0" border="0"><tr><td class="lg">
+<code>// runNormal<br>
+printDoubleLine();<br>
+RandomAccessFileAdapter rafAdapter = new RandomAccessFileAdapter();<br>
+IoAdapter ioAdapter = new LoggingIoAdapter(rafAdapter, "test.log");<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+System.out.println("Running db4o IoBenchmark");<br>
+printDoubleLine();<br>
+// Run a target application and log its I/O access pattern<br>
+runTargetApplication(_objectCount);<br>
+// Replay the recorded I/O operations once to prepare a database file.<br>
+prepareDbFile(_objectCount);<br>
+// Replay the recorded I/O operations a second time. <br>
+// Operations are grouped by command type (read, write, seek, sync), <br>
+// and the total time executing all operations of a specific command type is measured. <br>
+runBenchmark(_objectCount);</code></td><td class="lg" align="left" valign="bottom" width=43><applet code="com.yetac.doctor.applet.DoctorRunExampleApplet" archive="doctor-applets.jar, db4o-7.2.44.10827-java5.jar, db4o-7.2.44.10827-bench.jar, f1.jar" width="40" height="30"><param name="exampleclass" value="com.db4o.f1.chapter10.BenchmarkExample"/><param name="examplemethod" value="runNormal"/></applet></td></tr></table>
+<br>
+You can use the above mentioned sequence of operations to benchmark any&nbsp;db4o application:<br>
+- make sure that your application uses LoggingIoAdapter for the benchmark run;<br>
+- modify runTargetApplication method to call your application.<br>
+The ns (nanosecond) values are our benchmark standard for the respective operations. &nbsp;Smaller numbers are better.<br>
+Note: It may be possible, that you get some zero values for time elapsed,&nbsp;and therefore infinity for operations per ms. This can occur if your machine&nbsp;is fast enough to execute all operations under 1 ms. To overcome this you can&nbsp;run the run.benchmark.medium target which operates with more objects and&nbsp;takes longer to complete. <br>
+<br>
+<a name="outline117"></a><br><h2>18.3. Delayed Benchmark</h2>IO Benchmark provides you with another helpful feature - delayed benchmark. It can&nbsp;be used to benchmark target devices (with a slow IO) on your development&nbsp;workstation. In order to do so you will need to run benchmark on your workstation&nbsp;and on target device, copy the result files to some folder on your workstation and&nbsp;run delayed benchmark. The delayed benchmark will use benchmark results files to analyze&nbsp;how much slower is the device than the workstation: a special delays will be&nbsp;introduced for each operation. Let's look at an example. <br>
+You should have the&nbsp;benchmark results from the previous example run. If you did not run the previous&nbsp;example, please, do it now. An example benchmark result data from a target device&nbsp;is already prepared and will be saved into db4o-IoBenchmark-results-10-slower.log. Workstation&nbsp;and target device results are defined in the benchmark example as:<br>
+<table width="100%" cellpadding="3" cellspacing="0" border="0"><tr><td class="lg">
+<code>private static final String _resultsFile2 = "db4o-IoBenchmark-results-10-slower.log";<br>
+private static final String _resultsFile1 = "db4o-IoBenchmark-results-10.log";</code></td></tr></table>
+<br>
+Note, that the order of files does not matter - the delays will be calculated&nbsp;to match the slower one.<br>
+<table width="100%" cellpadding="3" cellspacing="0" border="0"><tr><td class="lg">
+<code>// runDelayed<br>
+printDoubleLine();<br>
+System.out.println("Running db4o IoBenchmark");<br>
+printDoubleLine();<br>
+// Write sample slow data to the test file<br>
+prepareDelayedFile(_resultsFile2);<br>
+// calculate the delays to match the slower device<br>
+processResultsFiles(_resultsFile1, _resultsFile2);<br>
+// Run a target application and log its I/O access pattern<br>
+runTargetApplication(_objectCount);<br>
+// Replay the recorded I/O operations once to prepare a database file.<br>
+prepareDbFile(_objectCount);<br>
+// Replay the recorded I/O operations a second time. <br>
+// Operations are grouped by command type (read, write, seek, sync), <br>
+// and the total time executing all operations of a specific command type is measured. <br>
+runBenchmark(_objectCount);</code></td><td class="lg" align="left" valign="bottom" width=43><applet code="com.yetac.doctor.applet.DoctorRunExampleApplet" archive="doctor-applets.jar, db4o-7.2.44.10827-java5.jar, db4o-7.2.44.10827-bench.jar, f1.jar" width="40" height="30"><param name="exampleclass" value="com.db4o.f1.chapter10.BenchmarkExample"/><param name="examplemethod" value="runDelayed"/></applet></td></tr></table>
+<br>
+Now you are supposed to get slower results (be patient - it can take a while). The example in this tutorial might be a bit confusing&nbsp;as it operates on very little amount of objects (thus time adjustments can be largely rounded),&nbsp;and the slow results file contains&nbsp;test data, which might not be realistic for any real device environment. There are some other pitfalls&nbsp;that you must remember when using delayed benchmark:<br>
+- Delayed benchmark can only work if all measured operations (read, write, seek, sync) are slower&nbsp;on one device and faster on another. If that is not the case an error will be returned.<br>
+- There is a minimum delay that can be achieved (a delay of processing operation). If your target device&nbsp;requires a smaller than minimum delay - the benchmark results will be inaccurate. You can try to&nbsp;improve the mesurements by running on a bigger amount of objects.<br>
+For any questions and improvement&nbsp;suggestions, please, use our <a href="http://developer.db4o.com/forums" target="_blank">forums</a>&nbsp;or <a href="http://tracker.db4o.com" target="_blank">Jira</a>.&nbsp;&nbsp;<br>
+<br>
+<br>
+<br><br><br><p align="center"><a href="http://www.db4o.com/" target=_top><small>www.db4o.com</small></a></p><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br></td></tr></table></div><div class="console"><applet name="doctorconsole" code="com.yetac.doctor.applet.DoctorConsoleApplet" archive="doctor-applets.jar, db4o-7.2.44.10827-java5.jar, db4o-7.2.44.10827-bench.jar, f1.jar" width="100%" height="150"><param name="yapfile" value="formula1.yap"/></body></html>

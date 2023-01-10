@@ -1,0 +1,84 @@
+body, p, td
+{
+	font-family: Arial, Helvetica, Verdana;
+	font-size: 10pt;
+	color: #666666;
+}
+H1
+{
+	color: #447744;
+	font-size: 180%;
+	font-weight: bold;
+}
+
+H2
+{
+	color: #447744;
+	font-size: 160%;
+	font-weight: bold;
+	border-bottom: double #CCC 3px;
+}
+
+H3
+{
+	color: #447744;
+	font-size: 140%;
+	font-weight: bold;
+	border-bottom: solid #CCC 1px;
+}
+
+H4
+{
+	color: #447744;
+	font-size: 130%;
+	font-weight: bold;
+}
+
+H5
+{
+	color: #447744;
+	font-size: 120%;
+	font-weight: bold;
+}
+
+H6
+{
+	color: #447744;
+	font-size: 100%;
+	font-weight: bold;
+}
+
+small
+{
+	margin-top: 2em;
+	padding: 0.5em;
+	font-size: 90%;
+	color: #CCCCCC;
+}
+
+
+code
+{
+	font-size: 100%;
+	color: black;
+	background-color: #F4F4F4;
+}
+
+
+
+.lg{background-color:#F4F4F4} 
+.co{background-color:#a0a0a0} 
+.console {
+	z-index:1;
+	float:none;
+	width:100%;
+	position:fixed;
+	height:150px;
+	bottom:0px;
+	left:0px;
+	overflow: hidden;
+}
+.button {
+	background-color: #ADD65C;
+	color: #666177;
+}
